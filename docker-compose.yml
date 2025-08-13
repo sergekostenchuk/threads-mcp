@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  threads-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: threads-mcp:latest
+    container_name: threads-mcp-server
+    restart: unless-stopped
+    
+    environment:
+      # Threads API Configuration
+      - THREADS_APP_ID=${THREADS_APP_ID}
+      - THREADS_APP_SECRET=${THREADS_APP_SECRET}
+      - THREADS_ACCESS_TOKEN=${THREADS_ACCESS_TOKEN:-}
+      - THREADS_USER_ID=${THREADS_USER_ID:-}
+      
+      # OAuth Configuration
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-http://localhost:3000/callback}
+      - OAUTH_SCOPE=${OAUTH_SCOPE:-threads_basic,threads_content_publish,threads_manage_insights,threads_manage_replies,threads_read_replies}
+      
+      # MCP Server Settings
+      - MCP_HOST=${MCP_HOST:-0.0.0.0}
+      - MCP_PORT=${MCP_PORT:-8766}
+      
+      # API Settings
+      - API_VERSION=${API_VERSION:-v1.0}
+      - API_BASE_URL=${API_BASE_URL:-https://graph.threads.net}
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
+      
+      # Storage
+      - DATA_DIR=/data
+      - CACHE_DIR=/data/cache
+      - SESSION_DIR=/data/sessions
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FILE=/logs/threads-mcp.log
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      
+      # Performance
+      - MAX_CONNECTIONS=${MAX_CONNECTIONS:-100}
+      - WORKER_THREADS=${WORKER_THREADS:-4}
+      - TIMEOUT_MS=${TIMEOUT_MS:-30000}
+      
+      # Security
+      - ENABLE_CORS=${ENABLE_CORS:-true}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - SESSION_SECRET=${SESSION_SECRET:-changeme}
+      
+    ports:
+      - "${MCP_PORT:-8766}:8766"
+      - "${OAUTH_PORT:-3000}:3000"  # OAuth callback server
+      
+    volumes:
+      - ./data:/data
+      - ./logs:/logs
+      - ./config:/app/config:ro
+      
+    networks:
+      - mcp-network
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+          
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8766/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: OAuth helper service
+  threads-oauth:
+    image: threads-mcp:latest
+    container_name: threads-oauth-server
+    command: ["src/oauth-server.js"]
+    restart: unless-stopped
+    
+    environment:
+      - PORT=3000
+      - THREADS_APP_ID=${THREADS_APP_ID}
+      - THREADS_APP_SECRET=${THREADS_APP_SECRET}
+      - REDIRECT_URI=${OAUTH_REDIRECT_URI:-http://localhost:3000/callback}
+      
+    ports:
+      - "3000:3000"
+      
+    networks:
+      - mcp-network
+      
+    profiles:
+      - oauth
+
+networks:
+  mcp-network:
+    driver: bridge
+    
+volumes:
+  data:
+  logs:
+  config:
